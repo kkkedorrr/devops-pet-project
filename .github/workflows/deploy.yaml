@@ -38,9 +38,15 @@ jobs:
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
       run: |
-        # Build the image tagging it with the Git Commit SHA
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+        # Build once
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        
+        # Tag it as 'latest' as well
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        # Push both
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
     # 5. Setup kubectl
     - name: Install kubectl
@@ -48,22 +54,22 @@ jobs:
       with:
         version: 'v1.28.0' # Or matching your K3s version
 
-    # 6. Deploy to K8s
-    - name: Deploy to K3s
+    # 6. Deploy using Helm
+    - name: Deploy to K3s using Helm
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
       run: |
-        # Create kubeconfig file from Secret
+        # Create kubeconfig (Same as before)
         mkdir -p ~/.kube
         echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
         chmod 600 ~/.kube/config
 
-        # Update the deployment.yaml with the new image tag
-        # We use 'sed' to replace the placeholder we made earlier
-        sed -i "s/IMAGE_TAG_PLACEHOLDER/$IMAGE_TAG/g" k8s/deployment.yaml
-        
-        # Apply the changes
-        kubectl apply -f k8s/ 
-        
-        # Verify rollout
-        kubectl rollout status deployment/flask-app
+        # Install Helm (GitHub Runners don't always have it)
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+        # Deploy!
+        # --set image.tag overrides the value in values.yaml
+        # --upgrade --install means "Update if exists, Create if not" (Idempotency)
+        helm upgrade --install flask-app ./helm-chart \
+          --set image.tag=$IMAGE_TAG \
+          --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY
