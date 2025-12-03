@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: flask-app
-        image: 399010259304.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app:v1 # <-- PASTE YOUR ECR URL HERE
+        image: 399010259304.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app:IMAGE_TAG_PLACEHOLDER # <-- PASTE YOUR ECR URL HERE
         ports:
         - containerPort: 5000
         imagePullPolicy: Always
