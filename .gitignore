@@ -1,0 +1,9 @@
+# .gitignore
+.DS_Store
+__pycache__/
+*.pem
+*.tfstate
+*.tfstate.backup
+.terraform/
+kubeconfig.yaml
+creds.txt
