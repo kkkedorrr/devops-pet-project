@@ -70,6 +70,6 @@ jobs:
         # Deploy!
         # --set image.tag overrides the value in values.yaml
         # --upgrade --install means "Update if exists, Create if not" (Idempotency)
-        helm upgrade --install flask-app ./helm-chart \
+        helm upgrade --install flask-release ./helm-chart \
           --set image.tag=$IMAGE_TAG \
           --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY
