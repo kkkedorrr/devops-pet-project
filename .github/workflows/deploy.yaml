@@ -11,46 +11,42 @@ env:
   ECR_REPOSITORY: devops-pet-app
   IMAGE_TAG: ${{ github.sha }}
 
+permissions:
+  contents: write # <--- CRITICAL: Allows the job to push back to the repo
+
 jobs:
-  # JOB 1: QUALITY CHECKS
-  # Runs on every push to main OR pull request
+  # JOB 1: QUALITY CHECKS (Same as before)
   integration-test:
     name: Unit Tests & Linting
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-          cache: 'pip' # Senior Move: Cache dependencies to speed up builds
+          cache: 'pip'
 
       - name: Install Dependencies
         run: |
           pip install -r app/requirements.txt
-          pip install flake8 # Linter
+          pip install flake8
 
       - name: Run Linter
-        run: |
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
       - name: Run Unit Tests
         run: |
-          # Tell python where the app module is
           export PYTHONPATH=$PYTHONPATH:.
           python -m unittest discover tests
 
-  # JOB 2: BUILD & PUSH
-  # Only runs if 'integration-test' passes
+  # JOB 2: BUILD & PUSH (Same as before)
   build-and-push:
     name: Build Docker Image
     needs: integration-test
     runs-on: ubuntu-latest
-    # Condition: We only want to push images if this is a push to main, 
-    # not just a PR opened by a random dev.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
@@ -77,10 +73,9 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-  # JOB 3: DEPLOY TO K8S
-  # Only runs if 'build-and-push' passes
-  deploy:
-    name: Deploy to K3s
+  # JOB 3: UPDATE GIT REPO (The GitOps Magic)
+  update-manifests:
+    name: Update Helm Values
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -88,29 +83,26 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          # We need the full history to push, though 'token' is handled implicitly
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Deploy using Helm
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      - name: Install yq
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
-          chmod 600 ~/.kube/config
+          wget https://github.com/mikefarah/yq/releases/download/v4.34.1/yq_linux_amd64 -O /usr/bin/yq
+          chmod +x /usr/bin/yq
+
+      - name: Update Image Tag in Helm
+        run: |
+          # Use yq to safely update the yaml key 'image.tag'
+          # -i means 'in-place edit'
+          yq -i '.image.tag = env(IMAGE_TAG)' helm-chart/values.yaml
+
+      - name: Commit and Push Changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          
-          helm upgrade --install flask-release ./helm-chart \
-            --set image.tag=$IMAGE_TAG \
-            --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
-            --wait # Wait for pods to be ready
+          git add helm-chart/values.yaml
+          git commit -m "Update image tag to $IMAGE_TAG [skip ci]"
+          git push
