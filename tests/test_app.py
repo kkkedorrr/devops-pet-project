@@ -1,5 +1,5 @@
 import unittest
-from app.app import app
+from app import app
 
 class BasicTests(unittest.TestCase):
     def setUp(self):
@@ -15,4 +15,3 @@ class BasicTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-    

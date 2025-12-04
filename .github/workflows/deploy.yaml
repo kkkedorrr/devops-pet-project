@@ -40,7 +40,7 @@ jobs:
       - name: Run Unit Tests
         run: |
           # Tell python where the app module is
-          export PYTHONPATH=./app
+          export PYTHONPATH=$PYTHONPATH:.
           python -m unittest discover tests
 
   # JOB 2: BUILD & PUSH
