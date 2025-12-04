@@ -110,7 +110,7 @@ jobs:
           
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           
-          helm upgrade --install flask-app ./helm-chart \
+          helm upgrade --install flask-release ./helm-chart \
             --set image.tag=$IMAGE_TAG \
             --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
             --wait # Wait for pods to be ready
