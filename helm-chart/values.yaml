@@ -4,7 +4,7 @@ image:
   repository: 399010259304.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app # e.g., 12345.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app
   pullPolicy: Always
   # We will override this tag in the CI pipeline
-  tag: "492608aadc2b06dcf837b8ca14814b22c9aae5e3"
+  tag: "3093af4220ac1ca99c5c92e4d44e4a2c3325a642"
 service:
   type: ClusterIP
   port: 80
