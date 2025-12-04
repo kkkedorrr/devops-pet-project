@@ -1,17 +1,14 @@
 # Default values for flask-app.
 replicaCount: 2
-
 image:
-  repository: 399010259304.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app  # e.g., 12345.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app
+  repository: 399010259304.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app # e.g., 12345.dkr.ecr.us-east-1.amazonaws.com/devops-pet-app
   pullPolicy: Always
   # We will override this tag in the CI pipeline
-  tag: "latest" 
-
+  tag: "492608aadc2b06dcf837b8ca14814b22c9aae5e3"
 service:
   type: ClusterIP
   port: 80
   targetPort: 5000
-
 ingress:
   enabled: true
   className: "traefik"
