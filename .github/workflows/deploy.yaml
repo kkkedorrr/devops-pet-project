@@ -1,75 +1,116 @@
-name: Deploy to AWS K3s
+name: Production Pipeline
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 env:
-  AWS_REGION: us-east-1                   # Change if you used a different region
+  AWS_REGION: us-east-1
   ECR_REPOSITORY: devops-pet-app
-  # We use the Git Short SHA as the unique image tag (Immutable infrastructure!)
-  IMAGE_TAG: ${{ github.sha }} 
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
-  deploy:
-    name: Build & Deploy
+  # JOB 1: QUALITY CHECKS
+  # Runs on every push to main OR pull request
+  integration-test:
+    name: Unit Tests & Linting
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip' # Senior Move: Cache dependencies to speed up builds
+
+      - name: Install Dependencies
+        run: |
+          pip install -r app/requirements.txt
+          pip install flake8 # Linter
+
+      - name: Run Linter
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run Unit Tests
+        run: |
+          # Tell python where the app module is
+          export PYTHONPATH=./app
+          python -m unittest discover tests
+
+  # JOB 2: BUILD & PUSH
+  # Only runs if 'integration-test' passes
+  build-and-push:
+    name: Build Docker Image
+    needs: integration-test
+    runs-on: ubuntu-latest
+    # Condition: We only want to push images if this is a push to main, 
+    # not just a PR opened by a random dev.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and Push
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  # JOB 3: DEPLOY TO K8S
+  # Only runs if 'build-and-push' passes
+  deploy:
+    name: Deploy to K3s
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-    # 1. Checkout Code
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-    # 2. Authenticate to AWS
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    # 3. Login to ECR
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-    # 4. Build, Tag, and Push Image
-    - name: Build, tag, and push image to Amazon ECR
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-      run: |
-        # Build using the ./app folder as context
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
-        
-        # Tag the specific build as 'latest' for convenience
-        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        
-        # Push both tags to ECR
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-    # 5. Setup kubectl
-    - name: Install kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'v1.28.0' # Or matching your K3s version
-
-    # 6. Deploy using Helm
-    - name: Deploy to K3s using Helm
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-      run: |
-        # Create kubeconfig (Same as before)
-        mkdir -p ~/.kube
-        echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
-        chmod 600 ~/.kube/config
-
-        # Install Helm (GitHub Runners don't always have it)
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-        # Deploy!
-        # --set image.tag overrides the value in values.yaml
-        # --upgrade --install means "Update if exists, Create if not" (Idempotency)
-        helm upgrade --install flask-release ./helm-chart \
-          --set image.tag=$IMAGE_TAG \
-          --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY
+      - name: Deploy using Helm
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          
+          helm upgrade --install flask-app ./helm-chart \
+            --set image.tag=$IMAGE_TAG \
+            --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
+            --wait # Wait for pods to be ready
