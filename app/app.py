@@ -8,7 +8,7 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def hello():
     hostname = socket.gethostname()
-    return f"Hello SENIOR DevOps! Version 2 is live on pod: {hostname}\n"
+    return f"Hello from Argo! Version 2 is live on pod: {hostname}\n"
 
 @flask_app.route('/health')
 def health():
@@ -17,4 +17,3 @@ def health():
 if __name__ == '__main__':
     # 3. Update the run command
     flask_app.run(host='0.0.0.0', port=5000)
-    
